@@ -4,7 +4,10 @@ import os
 import shutil
 import uuid
 from pydub import AudioSegment
+from flask_cors import CORS
+
 app = Flask(__name__)
+CORS(app)
 
 # Initialize Spleeter (2stems: vocals, accompaniment)
 separator = Separator('spleeter:2stems')
