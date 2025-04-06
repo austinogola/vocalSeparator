@@ -1,0 +1,33 @@
+FROM python:3.8-slim
+
+# Set environment vars
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy project files
+COPY . /app
+
+# Install dependencies
+RUN pip install --upgrade pip \
+    && pip install tensorflow-cpu==2.12.0 \
+    && pip install spleeter flask \
+    && pip install werkzeug
+
+# Create necessary folders
+RUN mkdir -p uploads outputs
+
+# Expose the server port
+EXPOSE 5000
+
+# Run the Flask server
+CMD ["python", "app.py"]
