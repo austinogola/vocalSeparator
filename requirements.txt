@@ -3,3 +3,4 @@ spleeter
 tensorflow==2.12.0
 pydub
 flask_cors
+python-dotenv

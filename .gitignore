@@ -2,3 +2,4 @@ pretrained_models/
 outputs/
 uploads/
 venv/
+.env
