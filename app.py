@@ -20,7 +20,7 @@ RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 
 # Initialize Spleeter (2stems: vocals, accompaniment)
 separator = Separator('spleeter:2stems')
-print(separator)
+print("SEPARATOR",separator)
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -36,8 +36,8 @@ def get_video_info(video_id):
     res = conn.getresponse()
     data = res.read()
     conn.close()
-    
     return data.decode("utf-8")
+
 
 @app.route("/separateYT", methods=["POST"])
 def separateYoutube():
@@ -67,7 +67,8 @@ def separateYoutube():
     filename = f"{video_id}.mp4"
    # file_path = download_video(video_download_url, filename)
     
-    return jsonify({"message": "Download complete", "file_path": video_download_url})
+    return jsonify({"message": "complete", "media_url": video_download_url})
+
 
 @app.route('/separate', methods=['POST'])
 def separate():
@@ -93,18 +94,19 @@ def separate():
         print(vocal_path,"created vocal path")
         if not os.path.exists(vocal_path):
             print("os path doesn't exists")
-            return jsonify({"error": "Vocal separation failed"}), 200
+            return jsonify({"error": "Vocal separation failed"}), 500
 
         return send_file(vocal_path, mimetype="audio/wav", as_attachment=True, download_name="vocals.wav")
 
     except Exception as e:
         print(e)
         print(str(e))
-        return jsonify({"error": str(e)}), 200
+        return jsonify({"error": str(e)}), 500
     finally:
         if os.path.exists(input_path):
             print('DONE')
             os.remove(input_path)
+
 
 @app.route('/separate/preview', methods=['POST'])
 def separate_preview():
@@ -119,17 +121,17 @@ def separate_preview():
     input_path_full = os.path.join(UPLOAD_DIR, f"{file_id}_full.mp3")
     input_path_trimmed = os.path.join(UPLOAD_DIR, f"{file_id}_10s.mp3")
     output_path = os.path.join(OUTPUT_DIR, f"{file_id}_10s")
-
+    print('preview path',output_path)
     try:
         # Save the full audio temporarily
         file.save(input_path_full)
 
         # Trim to 10 seconds using pydub
         audio = AudioSegment.from_file(input_path_full)
-        first_10_seconds = audio[:10 * 1000]  # 10 seconds in ms
-        print('FF1')
-        first_10_seconds.export(input_path_trimmed, format="wav")
-        print('FF2')
+        first_20_seconds = audio[:20 * 1000]  # 10 seconds in ms
+        print('SEPARATE PRE 1')
+        first_20_seconds.export(input_path_trimmed, format="wav")
+        print('SEPARATE PRE 2')
         # Separate trimmed audio
         separator.separate_to_file(input_path_trimmed, OUTPUT_DIR)
         vocal_path = os.path.join(output_path, "vocals.wav")
@@ -143,8 +145,37 @@ def separate_preview():
         return jsonify({"error": str(e)}), 500
     finally:
         for path in [input_path_full, input_path_trimmed]:
-            if os.path.exists(path) and False:
+            if os.path.exists(path):
                 os.remove(path)
+
+
+@app.route('/test', methods=['POST'])
+def testEndpoint():
+   data = request.json
+   type0f=''
+   if not data or 'typeOf' not in data:
+       typeOf = 'aud'
+   else:
+       typeOf = data.get('typeOf','aud')
+
+   # Name of the file in your app root directory
+   #filename = 'defaultVocals.wav'
+    
+   # Absolute path to the root directory of the app
+   #root_dir = os.path.abspath(os.path.dirname(__file__))
+    
+   # Send the file from root
+   #return send_from_directory(root_dir, filename, as_attachment=True)
+   file_path = os.path.join(os.path.dirname(__file__), 'defaultVocals.wav')
+   if typeOf == 'aud':
+       return send_file(file_path, as_attachment=True,download_name="defaultVocals.wav")
+       #return  file_path = os.path.join(os.path.dirname(__file__), 'example.txt')
+       #return send_file(vocal_path, mimetype="audio/wav", as_attachment=True, download_name="vocals_from_url.wav")
+   else:
+       #return send_file(vocal_path, mimetype="audio/wav", as_attachment=True, download_name="vocals_from_url.wav")
+       return send_file(file_path, as_attachment=True,download_name="defaultVocals.wav")
+
+
 @app.route('/separate/url', methods=['POST'])
 def separate_from_url():
     data = request.json
@@ -176,7 +207,7 @@ def separate_from_url():
                 f.write(chunk)
 
         # Separate
-        print('written')
+        print('WRITTEN URL SUCCESSFULLY')
         separator.separate_to_file(input_path, OUTPUT_DIR)
         vocal_path = os.path.join(output_path, "vocals.wav")
 
