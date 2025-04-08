@@ -1,5 +1,7 @@
 pretrained_models/
 outputs/
 uploads/
+downloads/
 venv/
+myenv/
 .env

@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y ffmpeg git && apt-get clean
 
 # Create app directories
 WORKDIR /app
-RUN mkdir -p uploads outputs
+RUN mkdir -p uploads outputs downloads
 
 # Install Python dependencies
 COPY requirements.txt .

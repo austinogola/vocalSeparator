@@ -9,7 +9,7 @@ import http.client
 import json
 import requests
 from dotenv import load_dotenv
-
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -17,14 +17,69 @@ load_dotenv()
 
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
-
+DOWNLOAD_RAPIDAPI_HOST=os.getenv("DOWNLOAD_RAPIDAPI_HOST")
 # Initialize Spleeter (2stems: vocals, accompaniment)
-separator = Separator('spleeter:2stems')
+separator = Separator('spleeter:2stems','multiprocess:True')
 print("SEPARATOR",separator)
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
+DOWNLOAD_DIR = 'downloads'
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+#spleeter separate -i audio_example.mp3 -c mp3 -b 128k
+def download_mp3(video_id ):
+    download_url2 = 'https://youtube-mp3-audio-video-downloader.p.rapidapi.com/download-mp3/R1F7nAomdn8?quality=low'
+    download_url = f"https://{DOWNLOAD_RAPIDAPI_HOST}/download-mp3/{video_id}?quality=low"
+    print(download_url)
+    print(download_url2)
+    headers = {
+        'x-rapidapi-key': RAPIDAPI_KEY,
+        'x-rapidapi-host': DOWNLOAD_RAPIDAPI_HOST
+    }
+    try:
+        start_time = time.time()
+
+        response = requests.get(download_url, headers=headers, stream=True)
+        print(response)
+        #print(response.text)
+        if response.status_code != 200:
+            return {'error': 'Failed to download file'}
+
+        filename = f"{video_id}.mp3"
+        filepath = os.path.join(DOWNLOAD_DIR, filename)
+
+        with open(filepath, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
+
+        print('DONE WRITING')
+        elapsed_time = time.time() - start_time
+
+        return ({
+            'file_path': filepath,
+            'download_time_seconds': round(elapsed_time, 2)
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
+#PP=download_mp3('R1F7nAomdn8')
+#print(PP)
+def parse_time(time_input):
+    if isinstance(time_input, int) or time_input.isdigit():
+        return int(time_input) * 1000  # convert to milliseconds
+    parts = list(map(int, time_input.split(":")))
+    seconds = 0
+    if len(parts) == 3:
+        seconds = parts[0] * 3600 + parts[1] * 60 + parts[2]
+    elif len(parts) == 2:
+        seconds = parts[0] * 60 + parts[1]
+    elif len(parts) == 1:
+        seconds = parts[0]
+    return seconds * 1000  # to milliseconds
 
 def get_video_info(video_id):
     conn = http.client.HTTPSConnection(RAPIDAPI_HOST)
@@ -37,6 +92,29 @@ def get_video_info(video_id):
     data = res.read()
     conn.close()
     return data.decode("utf-8")
+
+
+@app.route("/download/audio/YT", methods=["POST"])
+def downloadYoutubeAudio():
+    data = request.json
+    videoUrl = data.get("videoUrl")
+    
+    if "youtube.com" in videoUrl or "youtu.be" in videoUrl:
+        video_id = videoUrl.split("v=")[-1] if "v=" in videoUrl else videoUrl.split("/")[-1]
+    else:
+        return jsonify({"error": "Invalid YouTube URL or ID"}), 400
+
+    mp3_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
+    if os.path.exists(mp3_path):
+       return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=True, download_name=f"{video_id}.mp3")
+
+    audio_info = download_mp3(video_id)
+    print(audio_info)
+    if (not audio_info["file_path"])or not  os.path.exists(audio_info["file_path"]):
+            print("download path doesn't exists")
+            return jsonify({"error": "MP3 download failed"}), 500
+
+    return send_file(audio_info["file_path"], mimetype="audio/mpeg", as_attachment=True, download_name=f"{video_id}.mp3")
 
 
 @app.route("/separateYT", methods=["POST"])
@@ -107,6 +185,55 @@ def separate():
             print('DONE')
             os.remove(input_path)
 
+
+
+@app.route("/separate/partial/YT", methods=["POST"])
+def partialSeparateYoutubeAudio():
+    data = request.json
+    videoUrl = data.get("videoUrl")
+    start=data.get("start","0")
+    end=data.get("end","10000")
+
+    #start = parse_time(start)
+    #end = parse_time(end)
+
+    if "youtube.com" in videoUrl or "youtu.be" in videoUrl:
+        video_id = videoUrl.split("v=")[-1] if "v=" in videoUrl else videoUrl.split("/")[-1]
+    else:
+        return jsonify({"error": "Invalid YouTube URL or ID"}), 400
+
+    mp3_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
+    if os.path.exists(mp3_path):
+       print('ALREADY EXISTS')
+       mp3_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
+    else:
+      print('DOES NOT ALREADY EXISTS, DOWNLOADING MP3')
+      audio_info = download_mp3(video_id)
+      print(audio_info)
+      if (not audio_info["file_path"])or not  os.path.exists(audio_info["file_path"]):
+            print("download path doesn't exists")
+            return jsonify({"error": "MP3 download failed"}), 500
+
+      mp3_path = audio_info["file_path"]
+
+    input_path_trimmed = os.path.join(UPLOAD_DIR, f"{video_id}_{start}_{end}.mp3")
+    output_path = os.path.join(OUTPUT_DIR, f"{video_id}_{start}_{end}")
+
+    # Trim using pydub
+    audio = AudioSegment.from_file(mp3_path)
+    audio_segment = audio[start:end]  # 10 seconds in ms
+        
+    audio_segment.export(input_path_trimmed, format="mp3")
+        
+    # Separate trimmed audio
+    separator.separate_to_file(input_path_trimmed, OUTPUT_DIR,codec="mp3", bitrate="128k")
+    vocal_path = os.path.join(output_path, "vocals.mp3")
+    print('vocal path',vocal_path)
+
+    if not os.path.exists(vocal_path):
+        return jsonify({"error": "Vocal separation failed"}), 500
+
+    return send_file(vocal_path, mimetype="audio/mpeg", as_attachment=True, download_name="vocals_preview.mp3")
 
 @app.route('/separate/preview', methods=['POST'])
 def separate_preview():
