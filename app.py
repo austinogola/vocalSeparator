@@ -18,6 +18,8 @@ load_dotenv()
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 DOWNLOAD_RAPIDAPI_HOST=os.getenv("DOWNLOAD_RAPIDAPI_HOST")
+MP3_DOWNLOADER_HOST=os.getenv("MP3_DOWNLOADER_HOST")
+
 # Initialize Spleeter (2stems: vocals, accompaniment)
 separator = Separator('spleeter:2stems','multiprocess:True')
 print("SEPARATOR",separator)
@@ -31,9 +33,10 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 #spleeter separate -i audio_example.mp3 -c mp3 -b 128k
 def download_mp3(video_id ):
     download_url2 = 'https://youtube-mp3-audio-video-downloader.p.rapidapi.com/download-mp3/R1F7nAomdn8?quality=low'
-    download_url = f"https://{DOWNLOAD_RAPIDAPI_HOST}/download-mp3/{video_id}?quality=low"
+    #download_url = f"https://{DOWNLOAD_RAPIDAPI_HOST}/download-mp3/{video_id}?quality=low"
+    download_url = f"https://{DOWNLOAD_RAPIDAPI_HOST}/download-m4a/{video_id}"
     print(download_url)
-    print(download_url2)
+    #print(download_url2)
     headers = {
         'x-rapidapi-key': RAPIDAPI_KEY,
         'x-rapidapi-host': DOWNLOAD_RAPIDAPI_HOST
@@ -68,6 +71,93 @@ def download_mp3(video_id ):
 
 #PP=download_mp3('R1F7nAomdn8')
 #print(PP)
+
+def download_mp3_from_youtube(url,max_retries=3):
+    # API endpoint to get the download link
+    api_url = f'https://{MP3_DOWNLOADER_HOST}/dl?id={url}'
+    print(api_url)
+    headers = {
+        'x-rapidapi-key': RAPIDAPI_KEY,  # Replace with your RapidAPI key
+        'x-rapidapi-host':MP3_DOWNLOADER_HOST,  # Replace with your RapidAPI host
+    }
+    start_time = time.time()
+
+    attempt = 0
+    result = None
+   
+    response = ''
+    result = ''
+
+    while attempt < max_retries:
+        try:
+            print(f'ATTEMPT {attempt}')
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+
+            download_link = result.get('link')
+            if download_link:  # Valid link received
+                break
+            else:
+                print(f"Attempt {attempt + 1}: No valid link returned, retrying...")
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1} failed with error: {e}")
+        attempt += 1
+
+    if not result or not result.get('link'):
+        print("Failed to get a valid MP3 link after retries.")
+        return None, None
+
+
+    try:
+        # Make the request to get the MP3 link
+        #response = requests.get(api_url, headers=headers)
+        #response.raise_for_status()  # Check for errors in the response
+        #result = response.json()  # Parse JSON response
+        print(result)
+        # Extract download link
+        download_link = result.get('link')
+        
+
+        #file_name = result.get('title', 'downloaded_song') + '.mp3'
+        file_name =f"{url}.mp3"
+        file_path = os.path.join(DOWNLOAD_DIR, file_name)
+
+        # Send a request to download the MP3 file
+        mp3_response = requests.get(download_link, stream=True)
+        mp3_response.raise_for_status()  # Ensure the download was successful
+        
+        # Determine the file path and write the content to a file
+        #file_name = result.get('title', 'downloaded_song') + '.mp3'
+        with open(file_path, 'wb') as file:
+            for chunk in mp3_response.iter_content(chunk_size=8192):
+                if chunk:
+                    file.write(chunk)
+        
+        # Calculate the time it took to download
+        download_time = time.time() - start_time
+        
+        # Return the file path and download time
+        #return file_name, download_time
+        return ({
+            'file_path': file_path,
+            'download_time_seconds': download_time
+        })
+    
+    except requests.exceptions.RequestException as e:
+        print(f"Error: {e}")
+        return None, None
+
+
+
+#file_path, download_time = download_mp3_from_youtube("m1EZG6RZsyg")
+#if file_path:
+  #  print(f"Downloaded file: {file_path}")
+   # print(f"Download time: {download_time:.2f} seconds")
+#else:
+ #   print('ERROR')
+
+
 def parse_time(time_input):
     if isinstance(time_input, int) or time_input.isdigit():
         return int(time_input) * 1000  # convert to milliseconds
@@ -208,7 +298,9 @@ def partialSeparateYoutubeAudio():
        mp3_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
     else:
       print('DOES NOT ALREADY EXISTS, DOWNLOADING MP3')
-      audio_info = download_mp3(video_id)
+      #audio_info = download_mp3(video_id)
+
+      audio_info = download_mp3_from_youtube(video_id)
       print(audio_info)
       if (not audio_info["file_path"])or not  os.path.exists(audio_info["file_path"]):
             print("download path doesn't exists")
@@ -220,12 +312,14 @@ def partialSeparateYoutubeAudio():
     output_path = os.path.join(OUTPUT_DIR, f"{video_id}_{start}_{end}")
 
     # Trim using pydub
+    print('Starting trim')
     audio = AudioSegment.from_file(mp3_path)
     audio_segment = audio[start:end]  # 10 seconds in ms
         
     audio_segment.export(input_path_trimmed, format="mp3")
         
     # Separate trimmed audio
+    print('SEPARATING startin')
     separator.separate_to_file(input_path_trimmed, OUTPUT_DIR,codec="mp3", bitrate="128k")
     vocal_path = os.path.join(output_path, "vocals.mp3")
     print('vocal path',vocal_path)
