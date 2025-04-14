@@ -10,6 +10,8 @@ import json
 import requests
 from dotenv import load_dotenv
 import time
+from pydub.utils import mediainfo
+import glob
 
 app = Flask(__name__)
 CORS(app)
@@ -182,6 +184,29 @@ def get_video_info(video_id):
     data = res.read()
     conn.close()
     return data.decode("utf-8")
+
+@app.route('/get_duration/<video_id>', methods=['GET'])
+def get_audio_duration(video_id):
+    try:
+        # Look for a matching audio file with common extensions
+        #file_name =f"{url}.mp3"
+        #file_path = os.path.join(DOWNLOAD_DIR, file_name)
+        audio_files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3"))
+        if not audio_files:
+            return jsonify({"error": "File not found"}), 404
+
+        audio_file = audio_files[0]
+
+        # Get duration using pydub/mediainfo (uses ffprobe)
+        info = mediainfo(audio_file)
+        duration = float(info['duration'])
+
+        return jsonify({
+            "video_id": video_id,
+            "duration_seconds": duration
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/download/audio/YT", methods=["POST"])
