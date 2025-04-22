@@ -5,3 +5,5 @@ downloads/
 venv/
 myenv/
 .env
+
+__pycache__/

@@ -1,6 +1,5 @@
 from flask import Flask, request, send_file, jsonify
 from spleeter.separator import Separator
-import os
 import shutil
 import uuid
 from pydub import AudioSegment
@@ -12,6 +11,13 @@ from dotenv import load_dotenv
 import time
 from pydub.utils import mediainfo
 import glob
+import os
+from supabase import create_client, Client
+from supabase_utils import (
+    upload_audio_to_supabase,
+    check_file_exists_in_bucket,
+    download_file_from_bucket
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -22,6 +28,13 @@ RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 DOWNLOAD_RAPIDAPI_HOST=os.getenv("DOWNLOAD_RAPIDAPI_HOST")
 MP3_DOWNLOADER_HOST=os.getenv("MP3_DOWNLOADER_HOST")
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_PUBLIC_KEY = os.getenv("SUPABASE_PUBLIC_KEY")
+BUCKET_NAME = "mutify-vocals-audios"
+#print(SUPABASE_PUBLIC_KEY)
+#print(SUPABASE_URL)
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_PUBLIC_KEY)
 # Initialize Spleeter (2stems: vocals, accompaniment)
 separator = Separator('spleeter:2stems','multiprocess:True')
 print("SEPARATOR",separator)
@@ -31,6 +44,13 @@ DOWNLOAD_DIR = 'downloads'
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+AUDIO_FOLDER = 'youtube-mp3-downloads'
+VOCALS_FOLDER = 'audio-vocals'
+
+result = upload_audio_to_supabase("defaultVocals.wav", delete_after_upload=True,bucket_folder=AUDIO_FOLDER)
+print(result)
+
 
 #spleeter separate -i audio_example.mp3 -c mp3 -b 128k
 def download_mp3(video_id ):
