@@ -21,7 +21,7 @@ print(supabase)
 def upload_audio_to_supabase(file_path: str, delete_after_upload: bool = False, bucket_folder: str = "") -> dict:
     if not os.path.exists(file_path):
         return {"error": f"File not found: {file_path}"}
-
+    print("UPLOADING AUDIO TO SUPABASE")
     filename = os.path.basename(file_path)
     destination_path = f"{bucket_folder.strip().strip('/')}/{filename}" if bucket_folder else filename
 
@@ -44,7 +44,7 @@ def upload_audio_to_supabase(file_path: str, delete_after_upload: bool = False, 
 
 def check_file_exists_in_bucket(filename: str, bucket_folder: str = "") -> bool:
     path = f"{bucket_folder.strip().strip('/')}/{filename}" if bucket_folder else filename
-
+    print("CHECKING IF AUDIO FILE IS IN BUCKET ")
     try:
         response = supabase.storage.from_(BUCKET_NAME).list(bucket_folder)
         if isinstance(response, list):
