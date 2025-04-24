@@ -5,3 +5,4 @@ pydub
 flask_cors
 python-dotenv
 supabase
+gunicorn
