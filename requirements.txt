@@ -6,3 +6,6 @@ flask_cors
 python-dotenv
 supabase
 gunicorn
+flask-pymongo
+flask-bcrypt
+pyjwt
