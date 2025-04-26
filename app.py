@@ -366,7 +366,7 @@ def get_user_config(current_user):
     accounts = mongo.db.accounts
 
     # Fetch user and account
-    user = users.find_one({"username": current_user})
+    user = users.find_one({"email": current_user})
     if not user:
         return jsonify({"error": "User not found"}), 404
 
