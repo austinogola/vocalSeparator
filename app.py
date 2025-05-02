@@ -21,6 +21,10 @@ from flask_bcrypt import Bcrypt
 import jwt
 import datetime
 from functools import wraps
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+import tempfile
 
 from supabase_utils import (
     upload_audio_to_supabase,
@@ -37,7 +41,7 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST")
 DOWNLOAD_RAPIDAPI_HOST=os.getenv("DOWNLOAD_RAPIDAPI_HOST")
 MP3_DOWNLOADER_HOST=os.getenv("MP3_DOWNLOADER_HOST")
-
+NEW_DOWN = os.getenv("NEW_DOWN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_PUBLIC_KEY = os.getenv("SUPABASE_PUBLIC_KEY")
 BUCKET_NAME = "mutify-vocals-audios"
@@ -87,16 +91,127 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
+def get_selenium_driver():
+    #chrome_options = Options()
+    #chrome_options.add_argument("--headless=new")
+    #chrome_options.add_argument("--no-sandbox")
+    #chrome_options.add_argument("--disable-dev-shm-usage")
+
+    # Create unique temp profile for this session
+    #profile_dir = tempfile.mkdtemp()
+    #chrome_options.add_argument(f"--user-data-dir={profile_dir}")
+
+    #driver = webdriver.Chrome(options=chrome_options)
+    #return driver, profile_dir
+
+
+    download_dir = tempfile.mkdtemp()
+
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_experimental_option("prefs", {
+        "download.default_directory": DOWNLOAD_DIR,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    })
+
+    driver = webdriver.Chrome(options=chrome_options)
+    return driver, download_dir
+
+
+def download_mp3_from_youtube2(url, max_retries=3):
+    api_url = f'https://{MP3_DOWNLOADER_HOST}/dl?id={url}'
+    headers = {
+        'x-rapidapi-key': RAPIDAPI_KEY,
+        'x-rapidapi-host': MP3_DOWNLOADER_HOST,
+    }
+
+    attempt = 0
+    result = None
+    download_link = None
+
+    while attempt < max_retries:
+        try:
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            download_link = result.get('link')
+            if download_link:
+                break
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+        attempt += 1
+
+    if not download_link:
+        print("Failed to retrieve a valid download link.")
+        return None, None
+
+    # Set up headless browser
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    
+    # Set custom download directory
+    prefs = {
+        "download.default_directory": DOWNLOAD_DIR,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+
+    # Start the driver
+    #driver = webdriver.Chrome(options=chrome_options)
+    driver, profile_dir = get_selenium_driver()
+    try:
+        print(f"Navigating to download link: {download_link}")
+        start_time = time.time()
+        driver.get(download_link)
+
+        # Wait a bit to ensure the file download is triggered
+        time.sleep(5)
+
+        # Wait for file to appear
+        file_name = f"{url}.mp3"
+        file_path = os.path.join(DOWNLOAD_DIR, file_name)
+
+        timeout = 30
+        elapsed = 0
+        while not os.path.exists(file_path) and elapsed < timeout:
+            time.sleep(1)
+            elapsed += 1
+        if os.path.exists(file_path):
+            download_time = time.time() - start_time
+            print(f"Download completed: {file_path}")
+            return {
+                'file_path': file_path,
+                'download_time_seconds': download_time
+            }
+        else:
+            print("Download did not complete within timeout.")
+            return None, None
+    finally:
+        driver.quit()
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+
 def download_mp3_from_youtube(url,max_retries=3):
     # API endpoint to get the download link
-    api_url = f'https://{MP3_DOWNLOADER_HOST}/dl?id={url}'
+    #api_url = f'https://{MP3_DOWNLOADER_HOST}/dl?id={url}'
+    api_url = f'https://{NEW_DOWN}/api/converttomp3'
     print(api_url)
     headers = {
+          'Content-Type': "application/json",
         'x-rapidapi-key': RAPIDAPI_KEY,  # Replace with your RapidAPI key
-        'x-rapidapi-host':MP3_DOWNLOADER_HOST,  # Replace with your RapidAPI host
+        'x-rapidapi-host':NEW_DOWN,  # Replace with your RapidAPI host
     }
+    payload = {"url":f"https://www.youtube.com/watch?v={url}"}
     start_time = time.time()
-
+    print(payload)
     attempt = 0
     result = None
    
@@ -106,11 +221,12 @@ def download_mp3_from_youtube(url,max_retries=3):
     while attempt < max_retries:
         try:
             print(f'ATTEMPT {attempt}')
-            response = requests.get(api_url, headers=headers)
-            response.raise_for_status()
+            response = requests.post(api_url, headers=headers,json=payload)
+            #response.raise_for_status()
             result = response.json()
-
-            download_link = result.get('link')
+            print(result)
+            download_link = result.get('url')
+            response.raise_for_status()
             if download_link:  # Valid link received
                 break
             else:
@@ -119,7 +235,7 @@ def download_mp3_from_youtube(url,max_retries=3):
             print(f"Attempt {attempt + 1} failed with error: {e}")
         attempt += 1
 
-    if not result or not result.get('link'):
+    if not result or not result.get('url'):
         print("Failed to get a valid MP3 link after retries.")
         return None, None
 
@@ -129,9 +245,9 @@ def download_mp3_from_youtube(url,max_retries=3):
         #response = requests.get(api_url, headers=headers)
         #response.raise_for_status()  # Check for errors in the response
         #result = response.json()  # Parse JSON response
-        print(result)
+        #print(result)
         # Extract download link
-        download_link = result.get('link')
+        download_link = result.get('url')
         
 
         #file_name = result.get('title', 'downloaded_song') + '.mp3'
@@ -140,8 +256,11 @@ def download_mp3_from_youtube(url,max_retries=3):
 
         # Send a request to download the MP3 file
         mp3_response = requests.get(download_link, stream=True)
+        #mp3_response.raise_for_status()  # Ensure the download was successful
+        #print("Response status:", mp3_response.status_code)
+        #print("Response headers:", mp3_response.headers)
+        #print("Response content (first 300 chars):", mp3_response.text[:300])
         mp3_response.raise_for_status()  # Ensure the download was successful
-        
         # Determine the file path and write the content to a file
         #file_name = result.get('title', 'downloaded_song') + '.mp3'
         with open(file_path, 'wb') as file:

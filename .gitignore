@@ -7,3 +7,5 @@ myenv/
 .env
 
 __pycache__/
+
+newenv/
